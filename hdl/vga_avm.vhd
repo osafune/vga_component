@@ -1,11 +1,22 @@
-----------------------------------------------------------------------
+-- ===================================================================
 -- TITLE : VGA Controller / AvalonMM Burst Master
 --
 --     VERFASSER : S.OSAFUNE (J-7SYSTEM Works)
 --     DATUM     : 2010/11/20 -> 2010/12/12 (HERSTELLUNG)
 --               : 2010/12/27 (FESTSTELLUNG)
 --               : 2011/06/25 オーバーラン条件を変更 
-----------------------------------------------------------------------
+--
+-- ===================================================================
+-- *******************************************************************
+--   Copyright (C) 2010-2011, J-7SYSTEM Works.  All rights Reserved.
+--
+-- * This module is a free sourcecode and there is NO WARRANTY.
+-- * No restriction on use. You can use, modify and redistribute it
+--   for personal, non-profit or commercial products UNDER YOUR
+--   RESPONSIBILITY.
+-- * Redistributions of source code must retain the above copyright
+--   notice.
+-- *******************************************************************
 
 library IEEE;
 use IEEE.std_logic_1164.all;
@@ -222,9 +233,3 @@ begin
 
 
 end RTL;
-
-
-
-----------------------------------------------------------------------
---  (C)2010,2011 Copyright J-7SYSTEM Works.  All rights Reserved.   --
-----------------------------------------------------------------------

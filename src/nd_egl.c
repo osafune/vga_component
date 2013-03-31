@@ -4,6 +4,16 @@
 		プリミティブレベルグラフィックドライバ
 
  **************************************************************************/
+// ******************************************************************* //
+//     Copyright (C) 2011, J-7SYSTEM Works.  All rights Reserved.      //
+//                                                                     //
+// * This module is a free sourcecode and there is NO WARRANTY.        //
+// * No restriction on use. You can use, modify and redistribute it    //
+//   for personal, non-profit or commercial products UNDER YOUR        //
+//   RESPONSIBILITY.                                                   //
+// * Redistributions of source code must retain the above copyright    //
+//   notice.                                                           //
+// ******************************************************************* //
 
 #include "nd_egl.h"
 
