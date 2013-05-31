@@ -5,6 +5,7 @@
 --     DATUM     : 2010/12/11 -> 2010/12/11 (HERSTELLUNG)
 --               : 2010/12/27 (FESTSTELLUNG)
 --
+--               : 2013/05/31 add s1_reset signal
 -- ===================================================================
 -- *******************************************************************
 --   Copyright (C) 2010-2011, J-7SYSTEM Works.  All rights Reserved.
@@ -38,6 +39,7 @@ entity vga_component is
 		----- AvalonMMクロック信号 -----------
 		csi_m1_reset		: in  std_logic;
 		csi_m1_clk			: in  std_logic;
+		csi_s1_reset		: in  std_logic;
 		csi_s1_clk			: in  std_logic;
 
 		----- AvalonMMマスタ信号 -----------
@@ -177,8 +179,6 @@ architecture RTL of vga_component is
 
 begin
 
-	reset_sig <= csi_m1_reset;
-
 
 	----- コントロールレジスタ -----------
 
@@ -201,8 +201,8 @@ begin
 
 	irq_s1 <= vsirq_reg when (vsirqena_reg = '1') else '0';
 
-	process(csi_s1_clk,reset_sig)begin
-		if (reset_sig = '1') then
+	process(csi_s1_clk, csi_s1_reset)begin
+		if (csi_s1_reset = '1') then
 			vs_0_reg  <= '0';
 			vs_1_reg  <= '0';
 			vs_2_reg  <= '0';
@@ -282,6 +282,8 @@ begin
 
 	----- タイミング信号生成 -----------
 
+	reset_sig <= csi_m1_reset or csi_s1_reset;
+
 	video_hsync_n <= not hs_delay_reg(2);
 	video_vsync_n <= not vs_delay_reg(2);
 
@@ -322,13 +324,14 @@ begin
 	);
 
 
+
 	----- メモリアクセス -----------
 
 	fs_riseedge_sig <= '1' when (fs_2_reg = '0' and fs_1_reg = '1') else '0';
 	ls_riseedge_sig <= '1' when (ls_2_reg = '0' and ls_1_reg = '1') else '0';
 
-	process(csi_m1_clk,reset_sig)begin		-- framestart,linestartの立ち上がりを検出 
-		if (reset_sig = '1') then
+	process(csi_m1_clk, csi_m1_reset)begin		-- framestart,linestartの立ち上がりを検出 
+		if (csi_m1_reset = '1') then
 			fs_0_reg <= '0';
 			fs_1_reg <= '0';
 			fs_2_reg <= '0';
@@ -354,7 +357,7 @@ begin
 		LINEOFFSETBYTES		=> LINEOFFSETBYTES
 	)
 	port map (
-		csi_m1_reset		=> reset_sig,
+		csi_m1_reset		=> csi_m1_reset,
 		csi_m1_clk			=> csi_m1_clk,
 		avm_m1_address		=> avm_m1_address,
 		avm_m1_waitrequest	=> avm_m1_waitrequest,
