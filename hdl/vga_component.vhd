@@ -1,14 +1,15 @@
 -- ===================================================================
 -- TITLE : VGA Controller / AvalonMM Component
 --
---     VERFASSER : S.OSAFUNE (J-7SYSTEM Works)
---     DATUM     : 2010/12/11 -> 2010/12/11 (HERSTELLUNG)
---               : 2010/12/27 (FESTSTELLUNG)
+--     DESIGN : S.OSAFUNE (J-7SYSTEM Works)
+--     DATE   : 2010/12/11 -> 2010/12/11
+--            : 2010/12/27 (FIXED)
 --
---               : 2013/05/31 add s1_reset signal
+--     UPDATE : 2013/05/31 add s1_reset signal
+--            : 2013/07/10 modify g_reset signal, add dot_enable signal
 -- ===================================================================
 -- *******************************************************************
---   Copyright (C) 2010-2011, J-7SYSTEM Works.  All rights Reserved.
+--   Copyright (C) 2010-2013, J-7SYSTEM Works.  All rights Reserved.
 --
 -- * This module is a free sourcecode and there is NO WARRANTY.
 -- * No restriction on use. You can use, modify and redistribute it
@@ -37,10 +38,9 @@ entity vga_component is
 	);
 	port (
 		----- AvalonMMクロック信号 -----------
-		csi_m1_reset		: in  std_logic;
-		csi_m1_clk			: in  std_logic;
-		csi_s1_reset		: in  std_logic;
-		csi_s1_clk			: in  std_logic;
+		g_reset				: in  std_logic;
+		m1_clk				: in  std_logic;
+		s1_clk				: in  std_logic;
 
 		----- AvalonMMマスタ信号 -----------
 		avm_m1_address		: out std_logic_vector(31 downto 0);
@@ -64,6 +64,7 @@ entity vga_component is
 		video_clk			: in  std_logic;		-- typ 25.175MHz
 		video_hsync_n		: out std_logic;
 		video_vsync_n		: out std_logic;
+		video_enable		: out std_logic;
 		video_rout			: out std_logic_vector(4 downto 0);
 		video_gout			: out std_logic_vector(4 downto 0);
 		video_bout			: out std_logic_vector(4 downto 0)
@@ -88,7 +89,7 @@ architecture RTL of vga_component is
 	signal ovrerr_reg			: std_logic;
 	signal vsflag_reg			: std_logic;
 	signal scanena_reg			: std_logic;
-	signal ditherena_reg		: std_logic;
+--	signal ditherena_reg		: std_logic;
 	signal framebuff_addr_reg	: std_logic_vector(31 downto 0);
 	signal vsynccounter_reg		: std_logic_vector(7 downto 0);
 
@@ -111,14 +112,16 @@ architecture RTL of vga_component is
 	signal vblank_sig			: std_logic;
 
 	signal pixelactive_sig		: std_logic;
+	signal pixelscanena_reg		: std_logic;
+	signal de_delay_reg			: std_logic_vector(2 downto 0);
 	signal hs_delay_reg			: std_logic_vector(2 downto 0);
 	signal vs_delay_reg			: std_logic_vector(2 downto 0);
 
 
 	component vga_avm
 	generic (
-		BURSTCYCLE			: integer := 320;
-		LINEOFFSETBYTES		: integer := 1024*2
+		BURSTCYCLE			: integer;
+		LINEOFFSETBYTES		: integer
 	);
 	port (
 		csi_m1_reset		: in  std_logic;
@@ -169,6 +172,7 @@ architecture RTL of vga_component is
 		framestart	: out std_logic;
 		linestart	: out std_logic;
 		dither		: out std_logic;		-- RGB444 dither signal
+		pixelena	: out std_logic;		-- pixel readout active
 
 		hsync		: out std_logic;
 		vsync		: out std_logic;
@@ -179,6 +183,8 @@ architecture RTL of vga_component is
 
 begin
 
+	reset_sig <= g_reset;
+
 
 	----- コントロールレジスタ -----------
 
@@ -186,7 +192,7 @@ begin
 						14=>vsirq_reg,
 						13=>vsflag_reg,
 						12=>ovrerr_reg,
-						1 =>ditherena_reg,
+--						1 =>ditherena_reg,
 						0 =>scanena_reg,
 						others=>'0');
 	readdata_1_sig <= framebuff_addr_reg;
@@ -201,8 +207,8 @@ begin
 
 	irq_s1 <= vsirq_reg when (vsirqena_reg = '1') else '0';
 
-	process(csi_s1_clk, csi_s1_reset)begin
-		if (csi_s1_reset = '1') then
+	process(s1_clk, reset_sig)begin
+		if (reset_sig = '1') then
 			vs_0_reg  <= '0';
 			vs_1_reg  <= '0';
 			vs_2_reg  <= '0';
@@ -215,12 +221,12 @@ begin
 			vsflag_reg   <= '0';
 			ovrerr_reg   <= '0';
 			scanena_reg  <= '0';
-			ditherena_reg<= '0';
+--			ditherena_reg<= '0';
 
 			framebuff_addr_reg <= (others=>'0');
 			vsynccounter_reg   <= (others=>'0');
 
-		elsif (csi_s1_clk'event and csi_s1_clk = '1') then
+		elsif (s1_clk'event and s1_clk = '1') then
 
 			-- VSYNC割り込みフラグのセットとクリア 
 			vs_0_reg  <= vsync_sig;
@@ -265,7 +271,7 @@ begin
 				case avs_s1_address is
 				when "00" =>
 					vsirqena_reg <= avs_s1_writedata(15);
-					ditherena_reg<= avs_s1_writedata(1);
+--					ditherena_reg<= avs_s1_writedata(1);
 					scanena_reg  <= avs_s1_writedata(0);
 
 				when "01" =>
@@ -282,15 +288,13 @@ begin
 
 	----- タイミング信号生成 -----------
 
-	reset_sig <= csi_m1_reset or csi_s1_reset;
-
+	video_enable  <= de_delay_reg(2);
 	video_hsync_n <= not hs_delay_reg(2);
 	video_vsync_n <= not vs_delay_reg(2);
 
-	pixelactive_sig <= '1' when (hblank_sig = '0' and vblank_sig = '0') else '0';
-
 	process(video_clk)begin				-- pixelデータ出力遅延分だけ同期信号もずらす 
 		if (video_clk'event and video_clk = '1') then
+			de_delay_reg <= de_delay_reg(1 downto 0) & ((not hblank_sig) and (not vblank_sig));
 			hs_delay_reg <= hs_delay_reg(1 downto 0) & hsync_sig;
 			vs_delay_reg <= vs_delay_reg(1 downto 0) & vsync_sig;
 		end if;
@@ -312,11 +316,12 @@ begin
 		video_clk	=> video_clk,
 		reset		=> reset_sig,
 		scan_ena	=> scanena_reg,
-		dither_ena	=> ditherena_reg,
+		dither_ena	=> '0',				--ditherena_reg,
 
 		framestart	=> framestart_sig,
 		linestart	=> linestart_sig,
 		dither		=> dither_sig,
+		pixelena	=> pixelactive_sig,
 		hsync		=> hsync_sig,
 		vsync		=> vsync_sig,
 		hblank		=> hblank_sig,
@@ -324,14 +329,13 @@ begin
 	);
 
 
-
 	----- メモリアクセス -----------
 
 	fs_riseedge_sig <= '1' when (fs_2_reg = '0' and fs_1_reg = '1') else '0';
 	ls_riseedge_sig <= '1' when (ls_2_reg = '0' and ls_1_reg = '1') else '0';
 
-	process(csi_m1_clk, csi_m1_reset)begin		-- framestart,linestartの立ち上がりを検出 
-		if (csi_m1_reset = '1') then
+	process(m1_clk, reset_sig)begin		-- framestart,linestartの立ち上がりを検出 
+		if (reset_sig = '1') then
 			fs_0_reg <= '0';
 			fs_1_reg <= '0';
 			fs_2_reg <= '0';
@@ -339,7 +343,7 @@ begin
 			ls_1_reg <= '0';
 			ls_2_reg <= '0';
 
-		elsif (csi_m1_clk'event and csi_m1_clk = '1') then
+		elsif (m1_clk'event and m1_clk = '1') then
 			fs_0_reg <= framestart_sig;
 			fs_1_reg <= fs_0_reg;
 			fs_2_reg <= fs_1_reg;
@@ -357,8 +361,8 @@ begin
 		LINEOFFSETBYTES		=> LINEOFFSETBYTES
 	)
 	port map (
-		csi_m1_reset		=> csi_m1_reset,
-		csi_m1_clk			=> csi_m1_clk,
+		csi_m1_reset		=> reset_sig,
+		csi_m1_clk			=> m1_clk,
 		avm_m1_address		=> avm_m1_address,
 		avm_m1_waitrequest	=> avm_m1_waitrequest,
 		avm_m1_burstcount	=> avm_m1_burstcount,

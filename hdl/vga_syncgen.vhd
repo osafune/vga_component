@@ -1,10 +1,11 @@
 -- ===================================================================
 -- TITLE : VGA Controller / Sync Generator
 --
---     VERFASSER : S.OSAFUNE (J-7SYSTEM Works)
---     DATUM     : 2010/12/10 -> 2010/12/10 (HERSTELLUNG)
---               : 2010/12/27 (FESTSTELLUNG)
+--     DESIGN : S.OSAFUNE (J-7SYSTEM Works)
+--     DATE   : 2010/12/10 -> 2010/12/10
+--            : 2010/12/27 (FIXED)
 --
+--     UPDATE : 2012/02/21 add pixelena signal(for ATM0430D5)
 -- ===================================================================
 -- *******************************************************************
 --   Copyright (C) 2010-2011, J-7SYSTEM Works.  All rights Reserved.
@@ -43,6 +44,7 @@ entity vga_syncgen is
 		framestart	: out std_logic;
 		linestart	: out std_logic;
 		dither		: out std_logic;		-- RGB444 dither signal
+		pixelena	: out std_logic;		-- pixel readout active
 
 		hsync		: out std_logic;
 		vsync		: out std_logic;
@@ -55,6 +57,7 @@ architecture RTL of vga_syncgen is
 	signal hcount	: integer range 0 to H_TOTAL-1;
 	signal vcount	: integer range 0 to V_TOTAL-1;
 
+	signal scan_in_reg	: std_logic;
 	signal scanena_reg	: std_logic;
 	signal dithena_reg	: std_logic;
 	signal frame_reg	: std_logic;
@@ -67,9 +70,10 @@ architecture RTL of vga_syncgen is
 
 begin
 
-	framestart <= frame_reg;
-	linestart  <= line_reg;
+	framestart <= frame_reg;	-- 必ずレジスタ出力 
+	linestart  <= line_reg;		-- 必ずレジスタ出力 
 	dither     <= dither_reg;
+	pixelena   <= scanena_reg when (hblank_reg = '0' and vblank_reg = '0') else '0';
 
 	hsync  <= hsync_reg;
 	vsync  <= vsync_reg;
@@ -82,6 +86,7 @@ begin
 			hcount <= H_TOTAL-1;
 			vcount <= V_TOTAL-1;
 
+			scan_in_reg <= '0';
 			scanena_reg <= '0';
 			dithena_reg <= '0';
 			frame_reg   <= '0';
@@ -93,8 +98,13 @@ begin
 			dither_reg  <= '0';
 
 		elsif(video_clk'event and video_clk='1') then
-			scanena_reg <= scan_ena;
+			scan_in_reg <= scan_ena;
 			dithena_reg <= dither_ena;
+
+			if (hcount = 0 and vcount = 0) then
+				scanena_reg <= scan_in_reg;
+			end if;
+
 
 			if (hcount = H_TOTAL-1) then
 				hcount <= 0;
@@ -109,11 +119,7 @@ begin
 			end if;
 
 			if (hcount = H_SYNC + H_BACKP-1) then
-				if (scanena_reg = '1') then
-					hblank_reg <= '0';
-				else
-					hblank_reg <= '1';
-				end if;
+				hblank_reg <= '0';
 			elsif (hcount = H_SYNC + H_BACKP + H_ACTIVE-1) then
 				hblank_reg <= '1';
 			end if;
@@ -133,11 +139,7 @@ begin
 				end if;
 
 				if (vcount = V_SYNC + V_BACKP-1) then
-					if (scanena_reg = '1') then
-						vblank_reg <= '0';
-					else
-						vblank_reg <= '1';
-					end if;
+					vblank_reg <= '0';
 				elsif (vcount = V_SYNC + V_BACKP + V_ACTIVE-1) then
 					vblank_reg <= '1';
 				end if;
@@ -152,7 +154,7 @@ begin
 				end if;
 
 				if (vblank_reg = '0') then
-					line_reg <= '1';
+					line_reg <= scanena_reg;	--'1';
 				else
 					line_reg <= '0';
 				end if;
@@ -162,7 +164,6 @@ begin
 			end if;
 
 
---			if (CONV_STD_LOGIC_VECTOR(hcount, 1) /= CONV_STD_LOGIC_VECTOR(vcount, 1)) then
 			if ((hcount mod 2) /= (vcount mod 2)) then
 				dither_reg <= dithena_reg;
 			else

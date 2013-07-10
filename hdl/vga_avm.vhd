@@ -1,10 +1,11 @@
 -- ===================================================================
 -- TITLE : VGA Controller / AvalonMM Burst Master
 --
---     VERFASSER : S.OSAFUNE (J-7SYSTEM Works)
---     DATUM     : 2010/11/20 -> 2010/12/12 (HERSTELLUNG)
---               : 2010/12/27 (FESTSTELLUNG)
---               : 2011/06/25 オーバーラン条件を変更 
+--     DESIGN : S.OSAFUNE (J-7SYSTEM Works)
+--     DATE   : 2010/11/20 -> 2010/12/12
+--            : 2010/12/27 (FIXED)
+--
+--     UPDATE : 2011/06/25 modify overrun enable condition
 --
 -- ===================================================================
 -- *******************************************************************
