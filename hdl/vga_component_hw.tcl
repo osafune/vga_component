@@ -43,6 +43,7 @@ add_fileset_file vga_component.vhd VHDL PATH vga_component.vhd TOP_LEVEL_FILE
 add_fileset_file vga_avm.vhd VHDL PATH vga_avm.vhd
 add_fileset_file vga_linebuffer.vhd VHDL PATH vga_linebuffer.vhd
 add_fileset_file vga_syncgen.vhd VHDL PATH vga_syncgen.vhd
+add_fileset_file vga_yvu2rgb.vhd VHDL PATH vga_yvu2rgb.vhd
 
 add_fileset sim_vhdl SIM_VHDL "" "VHDL Simulation"
 set_fileset_property sim_vhdl TOP_LEVEL vga_component
@@ -51,6 +52,7 @@ add_fileset_file vga_component.vhd VHDL PATH vga_component.vhd
 add_fileset_file vga_avm.vhd VHDL PATH vga_avm.vhd
 add_fileset_file vga_linebuffer.vhd VHDL PATH vga_linebuffer.vhd
 add_fileset_file vga_syncgen.vhd VHDL PATH vga_syncgen.vhd
+add_fileset_file vga_yvu2rgb.vhd VHDL PATH vga_yvu2rgb.vhd
 
 
 # 
@@ -139,9 +141,9 @@ set_interface_property ext PORT_NAME_MAP ""
 set_interface_property ext SVD_ADDRESS_GROUP ""
 
 add_interface_port ext video_clk export Input 1
-add_interface_port ext video_rout export Output 5
-add_interface_port ext video_gout export Output 5
-add_interface_port ext video_bout export Output 5
+add_interface_port ext video_rout export Output 8
+add_interface_port ext video_gout export Output 8
+add_interface_port ext video_bout export Output 8
 add_interface_port ext video_hsync_n export Output 1
 add_interface_port ext video_vsync_n export Output 1
 add_interface_port ext video_enable export Output 1

@@ -6,6 +6,8 @@
 --            : 2010/12/27 (FIXED)
 --
 --     UPDATE : 2011/06/25 modify overrun enable condition
+--              2021/12/06 removed overrun, video_dither
+--              2022/01/02 add RGB/YUV output format option
 --
 -- ===================================================================
 -- *******************************************************************
@@ -26,15 +28,19 @@ use IEEE.std_logic_unsigned.all;
 
 entity vga_avm is
 	generic (
+--		PIXEL_COLORORDER	: string := "RGB565";
+--		PIXEL_COLORORDER	: string := "RGB555";
+--		PIXEL_COLORORDER	: string := "RGB444";
+		PIXEL_COLORORDER	: string := "YUV422";
 		BURSTCYCLE			: integer := 320;
 		LINEOFFSETBYTES		: integer := 1024*2
 	);
 	port (
-		----- AvalonMMÉNÉçÉbÉNêMçÜ -----------
+		----- AvalonMM„ÇØ„É≠„ÉÉ„ÇØ‰ø°Âè∑ -----------
 		csi_m1_reset		: in  std_logic;
 		csi_m1_clk			: in  std_logic;
 
-		----- AvalonMMÉ}ÉXÉ^êMçÜ -----------
+		----- AvalonMM„Éû„Çπ„Çø‰ø°Âè∑ -----------
 		avm_m1_address		: out std_logic_vector(31 downto 0);
 		avm_m1_waitrequest	: in  std_logic;
 		avm_m1_burstcount	: out std_logic_vector(9 downto 0);
@@ -43,19 +49,17 @@ entity vga_avm is
 		avm_m1_readdata		: in  std_logic_vector(31 downto 0);
 		avm_m1_readdatavalid: in  std_logic;
 
-		----- äOïîêMçÜ -----------
+		----- Â§ñÈÉ®‰ø°Âè∑ -----------
 		framebuff_addr		: in  std_logic_vector(31 downto 0);
 		framestart			: in  std_logic;
 		linestart			: in  std_logic;
 		ready				: out std_logic;
-		overrun				: out std_logic;		-- linebuffer overrun. clear for framestart signal.
 
 		video_clk			: in  std_logic;		-- typ 25MHz
 		video_active		: in  std_logic;
-		video_dither		: in  std_logic;
-		video_rout			: out std_logic_vector(4 downto 0);
-		video_gout			: out std_logic_vector(4 downto 0);
-		video_bout			: out std_logic_vector(4 downto 0);
+		video_rout			: out std_logic_vector(7 downto 0);
+		video_gout			: out std_logic_vector(7 downto 0);
+		video_bout			: out std_logic_vector(7 downto 0);
 		video_pixelvalid	: out std_logic
 	);
 end vga_avm;
@@ -74,23 +78,21 @@ architecture RTL of vga_avm is
 	signal write_reg	: std_logic;
 
 	signal pixelcount_reg	: std_logic_vector(8 downto 0);
-	signal overrun_reg		: std_logic;
 
 	signal readdata_sig			: std_logic_vector(31 downto 0);
 	signal readdatavalid_sig	: std_logic;
 	signal pixeladdr_reg		: std_logic_vector(9 downto 0);
 	signal pixeldata_sig		: std_logic_vector(15 downto 0);
-	signal valid_reg			: std_logic_vector(2 downto 0);
+	signal valid_reg			: std_logic_vector(3 downto 0);
 
-	signal pixel_r_sig			: std_logic_vector(4 downto 0);
-	signal pixel_g_sig			: std_logic_vector(4 downto 0);
-	signal pixel_b_sig			: std_logic_vector(4 downto 0);
-	signal dither_r_sig			: std_logic_vector(4 downto 0);
-	signal dither_g_sig			: std_logic_vector(4 downto 0);
-	signal dither_b_sig			: std_logic_vector(4 downto 0);
-	signal rout_reg				: std_logic_vector(4 downto 0);
-	signal gout_reg				: std_logic_vector(4 downto 0);
-	signal bout_reg				: std_logic_vector(4 downto 0);
+	signal pixel_r_sig			: std_logic_vector(7 downto 0);
+	signal pixel_g_sig			: std_logic_vector(7 downto 0);
+	signal pixel_b_sig			: std_logic_vector(7 downto 0);
+	signal pixellatch_sig		: std_logic;
+	signal rout_reg				: std_logic_vector(7 downto 0);
+	signal gout_reg				: std_logic_vector(7 downto 0);
+	signal bout_reg				: std_logic_vector(7 downto 0);
+	signal outvalid_reg			: std_logic;
 
 	component vga_linebuffer
 	PORT
@@ -105,15 +107,30 @@ architecture RTL of vga_avm is
 	);
 	end component;
 
+	component vga_yvu2rgb
+	port(
+		reset		: in  std_logic;
+		clk			: in  std_logic;
+
+		pixelvalid	: in  std_logic;
+		y_data		: in  std_logic_vector(7 downto 0);
+		uv_data		: in  std_logic_vector(7 downto 0);
+
+		r_data		: out std_logic_vector(7 downto 0);
+		g_data		: out std_logic_vector(7 downto 0);
+		b_data		: out std_logic_vector(7 downto 0)
+	);
+	end component;
+
 begin
 
-	-- ÉXÉeÅ[É^ÉXÅïÉGÉâÅ[É`ÉFÉbÉN 
+	-- „Çπ„ÉÜ„Éº„Çø„ÇπÔºÜ„Ç®„É©„Éº„ÉÅ„Çß„ÉÉ„ÇØ 
 
 	ready   <= '1' when (avm_state = IDLE) else '0';
-	overrun <= overrun_reg;
 
 
-	-- AvalonMMÉoÅ[ÉXÉgÉ}ÉXÉ^ÅEÉXÉeÅ[ÉgÉ}ÉVÉì 
+
+	-- AvalonMM„Éê„Éº„Çπ„Éà„Éû„Çπ„Çø„Éª„Çπ„ÉÜ„Éº„Éà„Éû„Ç∑„É≥ 
 
 	avm_m1_address    <= addr_reg & "00";
 	avm_m1_burstcount <= CONV_STD_LOGIC_VECTOR(BURSTCYCLE, 10);
@@ -132,7 +149,7 @@ begin
 			topaddr_reg  <= (others=>'0');
 			lineoffs_reg <= (others=>'0');
 
-		elsif(csi_m1_clk'event and csi_m1_clk='1') then
+		elsif rising_edge(csi_m1_clk) then
 
 			case avm_state is
 			when IDLE =>
@@ -174,45 +191,20 @@ begin
 	end process;
 
 
-	-- ÉâÉCÉìÉoÉbÉtÉ@ÉÅÉÇÉä 
 
-	video_rout       <= rout_reg;
-	video_gout       <= gout_reg;
-	video_bout       <= bout_reg;
-	video_pixelvalid <= valid_reg(2);
+	-- „É©„Ç§„É≥„Éê„ÉÉ„Éï„Ç°„É°„É¢„É™ 
 
-	process(video_clk)begin
-		if (video_clk'event and video_clk='1') then
-			valid_reg <= valid_reg(1 downto 0) & video_active;
-
+	process (video_clk) begin
+		if rising_edge(video_clk) then
 			if (video_active = '0') then
 				pixeladdr_reg <= (others=>'0');
 			else
 				pixeladdr_reg <= pixeladdr_reg + '1';
 			end if;
-
-			if (valid_reg(1) = '1') then
-				rout_reg <= dither_r_sig;
-				gout_reg <= dither_g_sig;
-				bout_reg <= dither_b_sig;
-			else
-				rout_reg <= (others=>'0');
-				gout_reg <= (others=>'0');
-				bout_reg <= (others=>'0');
-			end if;
-
-			pixelcount_reg <= CONV_STD_LOGIC_VECTOR(datacount, 9);
-			if (video_active = '0') then
-				overrun_reg <= '0';
-			elsif (pixelcount_reg < pixeladdr_reg(9 downto 1)) then
-				overrun_reg <= '1';
-			end if;
-
 		end if;
 	end process;
 
-
-	U0 : vga_linebuffer
+	u0 : vga_linebuffer
 	PORT MAP (
 		wrclock		=> csi_m1_clk,
 		wraddress	=> CONV_STD_LOGIC_VECTOR(datacount, 9),
@@ -224,13 +216,73 @@ begin
 		q			=> pixeldata_sig
 	);
 
-	pixel_r_sig <= pixeldata_sig(14 downto 10);
-	pixel_g_sig <= pixeldata_sig( 9 downto  5);
-	pixel_b_sig <= pixeldata_sig( 4 downto  0);
 
-	dither_r_sig <= pixel_r_sig + "00001" when(pixel_r_sig/="11111" and video_dither='1') else pixel_r_sig;
-	dither_g_sig <= pixel_g_sig + "00001" when(pixel_g_sig/="11111" and video_dither='1') else pixel_g_sig;
-	dither_b_sig <= pixel_b_sig + "00001" when(pixel_b_sig/="11111" and video_dither='1') else pixel_b_sig;
+	-- „Éî„ÇØ„Çª„É´„Éï„Ç©„Éº„Éû„ÉÉ„ÉàÂ§âÊèõ 
+
+GEN_RGB565 : if (PIXEL_COLORORDER = "RGB565") generate
+	pixel_r_sig <= pixeldata_sig(15 downto 11) & pixeldata_sig(15 downto 13);
+	pixel_g_sig <= pixeldata_sig(10 downto  5) & pixeldata_sig(10 downto  9);
+	pixel_b_sig <= pixeldata_sig( 4 downto  0) & pixeldata_sig( 4 downto  2);
+	pixellatch_sig <= valid_reg(1);
+end generate;
+
+GEN_RGB555 : if (PIXEL_COLORORDER = "RGB555") generate
+	pixel_r_sig <= pixeldata_sig(14 downto 10) & pixeldata_sig(14 downto 12);
+	pixel_g_sig <= pixeldata_sig( 9 downto  5) & pixeldata_sig( 9 downto  7);
+	pixel_b_sig <= pixeldata_sig( 4 downto  0) & pixeldata_sig( 4 downto  2);
+	pixellatch_sig <= valid_reg(1);
+end generate;
+
+GEN_RGB444 : if (PIXEL_COLORORDER = "RGB444") generate
+	pixel_r_sig <= pixeldata_sig(11 downto  8) & pixeldata_sig(11 downto  8);
+	pixel_g_sig <= pixeldata_sig( 7 downto  4) & pixeldata_sig( 7 downto  4);
+	pixel_b_sig <= pixeldata_sig( 3 downto  0) & pixeldata_sig( 3 downto  0);
+	pixellatch_sig <= valid_reg(1);
+end generate;
+
+GEN_YUV422 : if (PIXEL_COLORORDER = "YUV422") generate
+	u_yvu2rgb : vga_yvu2rgb
+	port map (
+		reset		=> '0',
+		clk			=> video_clk,
+		pixelvalid	=> valid_reg(1),
+		y_data		=> pixeldata_sig(15 downto 8),
+		uv_data		=> pixeldata_sig(7 downto 0),
+		r_data		=> pixel_r_sig,
+		g_data		=> pixel_g_sig,
+		b_data		=> pixel_b_sig
+	);
+	pixellatch_sig <= valid_reg(3);
+end generate;
+
+
+	-- Âá∫Âäõ„Éá„Éº„Çø„É©„ÉÉ„ÉÅ 
+
+	process (video_clk) begin
+		if rising_edge(video_clk) then
+			valid_reg <= valid_reg(valid_reg'left-1 downto 0) & video_active;
+
+			if (pixellatch_sig = '1') then
+				rout_reg <= pixel_r_sig;
+				gout_reg <= pixel_g_sig;
+				bout_reg <= pixel_b_sig;
+			else
+				rout_reg <= (others=>'0');
+				gout_reg <= (others=>'0');
+				bout_reg <= (others=>'0');
+			end if;
+
+			outvalid_reg <= pixellatch_sig;
+
+		end if;
+	end process;
+
+	video_rout <= rout_reg;
+	video_gout <= gout_reg;
+	video_bout <= bout_reg;
+	video_pixelvalid <= outvalid_reg;
+
+
 
 
 end RTL;

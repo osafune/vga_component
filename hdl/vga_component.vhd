@@ -6,7 +6,10 @@
 --            : 2010/12/27 (FIXED)
 --
 --     UPDATE : 2013/05/31 add s1_reset signal
---            : 2013/07/10 modify g_reset signal, add dot_enable signal
+--              2013/07/10 modify g_reset signal, add dot_enable signal
+--              2022/01/02 add RGB/YUV output format option
+--              2022/01/02 ignore vsync counter
+--
 -- ===================================================================
 -- *******************************************************************
 --   Copyright (C) 2010-2013, J-7SYSTEM Works.  All rights Reserved.
@@ -26,23 +29,37 @@ use IEEE.std_logic_unsigned.all;
 
 entity vga_component is
 	generic (
-		LINEOFFSETBYTES	: integer := 1024*2;
-		H_TOTAL			: integer := 800;
-		H_SYNC			: integer := 96;
-		H_BACKP			: integer := 48;
-		H_ACTIVE		: integer := 640;
-		V_TOTAL			: integer := 525;
-		V_SYNC			: integer := 2;
-		V_BACKP			: integer := 33;
-		V_ACTIVE		: integer := 480
+--		PIXEL_COLORORDER	: string := "RGB565";
+--		PIXEL_COLORORDER	: string := "RGB555";
+--		PIXEL_COLORORDER	: string := "RGB444";
+		PIXEL_COLORORDER	: string := "YUV422";
+
+		LINEOFFSETBYTES		: integer := 1024*2;
+		H_TOTAL				: integer := 800;
+		H_SYNC				: integer := 96;
+		H_BACKP				: integer := 48;
+		H_ACTIVE			: integer := 640;
+		V_TOTAL				: integer := 525;
+		V_SYNC				: integer := 2;
+		V_BACKP				: integer := 33;
+		V_ACTIVE			: integer := 480
+
+--		H_TOTAL				: integer := 32;	-- test
+--		H_SYNC				: integer := 5;		-- test
+--		H_BACKP				: integer := 3;		-- test
+--		H_ACTIVE			: integer := 16;	-- test
+--		V_TOTAL				: integer := 5;		-- test
+--		V_SYNC				: integer := 1;		-- test
+--		V_BACKP				: integer := 1;		-- test
+--		V_ACTIVE			: integer := 3		-- test
 	);
 	port (
-		----- AvalonMMÉNÉçÉbÉNêMçÜ -----------
+		----- AvalonMM„ÇØ„É≠„ÉÉ„ÇØ‰ø°Âè∑ -----------
 		g_reset				: in  std_logic;
 		m1_clk				: in  std_logic;
 		s1_clk				: in  std_logic;
 
-		----- AvalonMMÉ}ÉXÉ^êMçÜ -----------
+		----- AvalonMM„Éû„Çπ„Çø‰ø°Âè∑ -----------
 		avm_m1_address		: out std_logic_vector(31 downto 0);
 		avm_m1_waitrequest	: in  std_logic;
 		avm_m1_burstcount	: out std_logic_vector(9 downto 0);
@@ -51,7 +68,7 @@ entity vga_component is
 		avm_m1_readdata		: in  std_logic_vector(31 downto 0);
 		avm_m1_readdatavalid: in  std_logic;
 
-		----- AvalonMMÉXÉåÅ[ÉuêMçÜ -----------
+		----- AvalonMM„Çπ„É¨„Éº„Éñ‰ø°Âè∑ -----------
 		avs_s1_address		: in  std_logic_vector(3 downto 2);
 		avs_s1_read			: in  std_logic;
 		avs_s1_readdata		: out std_logic_vector(31 downto 0);
@@ -60,14 +77,14 @@ entity vga_component is
 
 		irq_s1				: out std_logic;
 
-		----- äOïîêMçÜ -----------
+		----- Â§ñÈÉ®‰ø°Âè∑ -----------
 		video_clk			: in  std_logic;		-- typ 25.175MHz
 		video_hsync_n		: out std_logic;
 		video_vsync_n		: out std_logic;
 		video_enable		: out std_logic;
-		video_rout			: out std_logic_vector(4 downto 0);
-		video_gout			: out std_logic_vector(4 downto 0);
-		video_bout			: out std_logic_vector(4 downto 0)
+		video_rout			: out std_logic_vector(7 downto 0);
+		video_gout			: out std_logic_vector(7 downto 0);
+		video_bout			: out std_logic_vector(7 downto 0)
 	);
 end vga_component;
 
@@ -83,19 +100,13 @@ architecture RTL of vga_component is
 	signal vs_2_reg				: std_logic;
 	signal vsirq_reg			: std_logic;
 	signal vsirqena_reg			: std_logic;
-	signal ovr_0_reg			: std_logic;
-	signal ovr_1_reg			: std_logic;
-	signal ovr_2_reg			: std_logic;
-	signal ovrerr_reg			: std_logic;
 	signal vsflag_reg			: std_logic;
 	signal scanena_reg			: std_logic;
---	signal ditherena_reg		: std_logic;
 	signal framebuff_addr_reg	: std_logic_vector(31 downto 0);
 	signal vsynccounter_reg		: std_logic_vector(7 downto 0);
 
 	signal framestart_sig		: std_logic;
 	signal linestart_sig		: std_logic;
-	signal overrun_sig			: std_logic;
 	signal fs_0_reg				: std_logic;
 	signal fs_1_reg				: std_logic;
 	signal fs_2_reg				: std_logic;
@@ -107,19 +118,20 @@ architecture RTL of vga_component is
 
 	signal hsync_sig			: std_logic;
 	signal vsync_sig			: std_logic;
-	signal dither_sig			: std_logic;
 	signal hblank_sig			: std_logic;
 	signal vblank_sig			: std_logic;
+	signal de_sig				: std_logic;
 
 	signal pixelactive_sig		: std_logic;
 	signal pixelscanena_reg		: std_logic;
-	signal de_delay_reg			: std_logic_vector(2 downto 0);
-	signal hs_delay_reg			: std_logic_vector(2 downto 0);
-	signal vs_delay_reg			: std_logic_vector(2 downto 0);
+	signal de_delay_reg			: std_logic_vector(4 downto 0);
+	signal hs_delay_reg			: std_logic_vector(4 downto 0);
+	signal vs_delay_reg			: std_logic_vector(4 downto 0);
 
 
 	component vga_avm
 	generic (
+		PIXEL_COLORORDER	: string;
 		BURSTCYCLE			: integer;
 		LINEOFFSETBYTES		: integer
 	);
@@ -139,14 +151,12 @@ architecture RTL of vga_component is
 		framestart			: in  std_logic;
 		linestart			: in  std_logic;
 		ready				: out std_logic;
-		overrun				: out std_logic;		-- linebuffer overrun. clear for framestart signal.
 
 		video_clk			: in  std_logic;		-- typ 25MHz
 		video_active		: in  std_logic;
-		video_dither		: in  std_logic;
-		video_rout			: out std_logic_vector(4 downto 0);
-		video_gout			: out std_logic_vector(4 downto 0);
-		video_bout			: out std_logic_vector(4 downto 0);
+		video_rout			: out std_logic_vector(7 downto 0);
+		video_gout			: out std_logic_vector(7 downto 0);
+		video_bout			: out std_logic_vector(7 downto 0);
 		video_pixelvalid	: out std_logic
 	);
 	end component;
@@ -167,17 +177,18 @@ architecture RTL of vga_component is
 		video_clk	: in  std_logic;		-- typ 25.175MHz
 
 		scan_ena	: in  std_logic;		-- framebuff scan enable
-		dither_ena	: in  std_logic;		-- dither enable
-
 		framestart	: out std_logic;
 		linestart	: out std_logic;
-		dither		: out std_logic;		-- RGB444 dither signal
 		pixelena	: out std_logic;		-- pixel readout active
 
 		hsync		: out std_logic;
 		vsync		: out std_logic;
 		hblank		: out std_logic;
-		vblank		: out std_logic
+		vblank		: out std_logic;
+		dotenable	: out std_logic;
+		cb_rout		: out std_logic_vector(7 downto 0);		-- colorbar pixeldata
+		cb_gout		: out std_logic_vector(7 downto 0);
+		cb_bout		: out std_logic_vector(7 downto 0)
 	);
 	end component;
 
@@ -186,13 +197,11 @@ begin
 	reset_sig <= g_reset;
 
 
-	----- ÉRÉìÉgÉçÅ[ÉãÉåÉWÉXÉ^ -----------
+	----- „Ç≥„É≥„Éà„É≠„Éº„É´„É¨„Ç∏„Çπ„Çø -----------
 
 	readdata_0_sig <= (	15=>vsirqena_reg,
 						14=>vsirq_reg,
 						13=>vsflag_reg,
-						12=>ovrerr_reg,
---						1 =>ditherena_reg,
 						0 =>scanena_reg,
 						others=>'0');
 	readdata_1_sig <= framebuff_addr_reg;
@@ -212,66 +221,50 @@ begin
 			vs_0_reg  <= '0';
 			vs_1_reg  <= '0';
 			vs_2_reg  <= '0';
-			ovr_0_reg <= '0';
-			ovr_1_reg <= '0';
-			ovr_2_reg <= '0';
 
 			vsirq_reg    <= '0';
 			vsirqena_reg <= '0';
 			vsflag_reg   <= '0';
-			ovrerr_reg   <= '0';
 			scanena_reg  <= '0';
---			ditherena_reg<= '0';
 
 			framebuff_addr_reg <= (others=>'0');
 			vsynccounter_reg   <= (others=>'0');
 
 		elsif (s1_clk'event and s1_clk = '1') then
 
-			-- VSYNCäÑÇËçûÇ›ÉtÉâÉOÇÃÉZÉbÉgÇ∆ÉNÉäÉA 
+			-- VSYNCÂâ≤„ÇäËæº„Åø„Éï„É©„Ç∞„ÅÆ„Çª„ÉÉ„Éà„Å®„ÇØ„É™„Ç¢ 
+
 			vs_0_reg  <= vsync_sig;
 			vs_1_reg  <= vs_0_reg;
 			vs_2_reg  <= vs_1_reg;
 
 			if (vs_2_reg = '0' and vs_1_reg = '1') then
 				vsirq_reg  <= '1';
-				vsflag_reg <= not vsflag_reg;		-- vsflagÇÕVSYNCÇÃìxÇ…îΩì]Ç∑ÇÈ 
+				vsflag_reg <= not vsflag_reg;		-- vsflag„ÅØVSYNC„ÅÆÂ∫¶„Å´ÂèçËª¢„Åô„Çã 
 
 			elsif (avs_s1_write = '1' and avs_s1_address = "00" and avs_s1_writedata(14) = '0') then
 				vsirq_reg <= '0';
 
 			end if;
 
-			-- VSYNCÉJÉEÉìÉ^ÇÃÉZÉbÉgÇ∆ÉfÉNÉäÉÅÉìÉg 
-			if (avs_s1_write = '1' and avs_s1_address = "10") then
-				vsynccounter_reg <= avs_s1_writedata(7 downto 0);
+			-- VSYNC„Ç´„Ç¶„É≥„Çø„ÅÆ„Çª„ÉÉ„Éà„Å®„Éá„ÇØ„É™„É°„É≥„Éà 
 
-			elsif (vs_2_reg = '0' and vs_1_reg = '1') then
-				if (vsynccounter_reg /= 0) then
-					vsynccounter_reg <= vsynccounter_reg - '1';
-				end if;
+--			if (avs_s1_write = '1' and avs_s1_address = "10") then
+--				vsynccounter_reg <= avs_s1_writedata(7 downto 0);
+--
+--			elsif (vs_2_reg = '0' and vs_1_reg = '1') then
+--				if (vsynccounter_reg /= 0) then
+--					vsynccounter_reg <= vsynccounter_reg - '1';
+--				end if;
+--
+--			end if;
 
-			end if;
+			-- „Åù„ÅÆ‰ªñ„ÅÆÂà∂Âæ°„É¨„Ç∏„Çπ„Çø„ÅÆÊõ∏„ÅçËæº„Åø 
 
-			-- OVERRUNÉGÉâÅ[ÉtÉâÉOÇÃÉZÉbÉgÇ∆ÉNÉäÉA 
-			ovr_0_reg <= overrun_sig;
-			ovr_1_reg <= ovr_0_reg;
-			ovr_2_reg <= ovr_1_reg;
-
-			if (ovr_2_reg = '0' and ovr_1_reg = '1') then
-				ovrerr_reg <= '1';
-
-			elsif (avs_s1_write = '1' and avs_s1_address = "00" and avs_s1_writedata(12) = '0') then
-				ovrerr_reg <= '0';
-
-			end if;
-
-			-- ÇªÇÃëºÇÃêßå‰ÉåÉWÉXÉ^ÇÃèëÇ´çûÇ› 
 			if (avs_s1_write = '1') then
 				case avs_s1_address is
 				when "00" =>
 					vsirqena_reg <= avs_s1_writedata(15);
---					ditherena_reg<= avs_s1_writedata(1);
 					scanena_reg  <= avs_s1_writedata(0);
 
 				when "01" =>
@@ -286,20 +279,7 @@ begin
 
 
 
-	----- É^ÉCÉ~ÉìÉOêMçÜê∂ê¨ -----------
-
-	video_enable  <= de_delay_reg(2);
-	video_hsync_n <= not hs_delay_reg(2);
-	video_vsync_n <= not vs_delay_reg(2);
-
-	process(video_clk)begin				-- pixelÉfÅ[É^èoóÕíxâÑï™ÇæÇØìØä˙êMçÜÇ‡Ç∏ÇÁÇ∑ 
-		if (video_clk'event and video_clk = '1') then
-			de_delay_reg <= de_delay_reg(1 downto 0) & ((not hblank_sig) and (not vblank_sig));
-			hs_delay_reg <= hs_delay_reg(1 downto 0) & hsync_sig;
-			vs_delay_reg <= vs_delay_reg(1 downto 0) & vsync_sig;
-		end if;
-	end process;
-
+	----- „Çø„Ç§„Éü„É≥„Ç∞‰ø°Âè∑ÁîüÊàê -----------
 
 	U0 : vga_syncgen
 	generic map (
@@ -313,28 +293,28 @@ begin
 		V_ACTIVE	=> V_ACTIVE
 	)
 	port map (
-		video_clk	=> video_clk,
 		reset		=> reset_sig,
-		scan_ena	=> scanena_reg,
-		dither_ena	=> '0',				--ditherena_reg,
+		video_clk	=> video_clk,
 
+		scan_ena	=> scanena_reg,
 		framestart	=> framestart_sig,
 		linestart	=> linestart_sig,
-		dither		=> dither_sig,
 		pixelena	=> pixelactive_sig,
+
 		hsync		=> hsync_sig,
 		vsync		=> vsync_sig,
 		hblank		=> hblank_sig,
-		vblank		=> vblank_sig
+		vblank		=> vblank_sig,
+		dotenable	=> de_sig
 	);
 
 
-	----- ÉÅÉÇÉäÉAÉNÉZÉX -----------
+	----- „É°„É¢„É™„Ç¢„ÇØ„Çª„Çπ -----------
 
 	fs_riseedge_sig <= '1' when (fs_2_reg = '0' and fs_1_reg = '1') else '0';
 	ls_riseedge_sig <= '1' when (ls_2_reg = '0' and ls_1_reg = '1') else '0';
 
-	process(m1_clk, reset_sig)begin		-- framestart,linestartÇÃóßÇøè„Ç™ÇËÇåüèo 
+	process(m1_clk, reset_sig)begin		-- framestart,linestart„ÅÆÁ´ã„Å°‰∏ä„Åå„Çä„ÇíÊ§úÂá∫ 
 		if (reset_sig = '1') then
 			fs_0_reg <= '0';
 			fs_1_reg <= '0';
@@ -357,6 +337,7 @@ begin
 
 	U1 : vga_avm
 	generic map (
+		PIXEL_COLORORDER	=> PIXEL_COLORORDER,
 		BURSTCYCLE			=> H_ACTIVE/2,
 		LINEOFFSETBYTES		=> LINEOFFSETBYTES
 	)
@@ -374,16 +355,38 @@ begin
 		framestart			=> fs_riseedge_sig,
 		linestart			=> ls_riseedge_sig,
 		ready				=> open,
-		overrun				=> overrun_sig,
 
 		video_clk			=> video_clk,
 		video_active		=> pixelactive_sig,
-		video_dither		=> dither_sig,
 		video_rout			=> video_rout,
 		video_gout			=> video_gout,
 		video_bout			=> video_bout,
 		video_pixelvalid	=> open
 	);
+
+
+	----- ÂêåÊúü‰ø°Âè∑Ë™øÊï¥ -----------
+
+	process(video_clk)begin				-- pixel„Éá„Éº„ÇøÂá∫ÂäõÈÅÖÂª∂ÂàÜ„Å†„ÅëÂêåÊúü‰ø°Âè∑„ÇÇ„Åö„Çâ„Åô 
+		if (video_clk'event and video_clk = '1') then
+			de_delay_reg <= de_delay_reg(3 downto 0) & de_sig;
+			hs_delay_reg <= hs_delay_reg(3 downto 0) & hsync_sig;
+			vs_delay_reg <= vs_delay_reg(3 downto 0) & vsync_sig;
+		end if;
+	end process;
+
+GEN_YUV : if (PIXEL_COLORORDER = "YUV422") generate
+	video_enable  <= de_delay_reg(4);
+	video_hsync_n <= not hs_delay_reg(4);
+	video_vsync_n <= not vs_delay_reg(4);
+end generate;
+
+GEN_RGB : if (PIXEL_COLORORDER /= "YUV422") generate
+	video_enable  <= de_delay_reg(2);
+	video_hsync_n <= not hs_delay_reg(2);
+	video_vsync_n <= not vs_delay_reg(2);
+end generate;
+
 
 
 end RTL;
